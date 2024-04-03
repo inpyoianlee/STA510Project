@@ -1,0 +1,409 @@
+---
+title: "STA510 Final Project"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(tidyr)
+library(ggplot2)
+library(glmnet)
+library(dplyr)
+library(car)
+```
+
+```{r}
+df <- read.csv('M1_final.csv')
+head(df)
+```
+
+```{r}
+summary(df)
+```
+```{r}
+df$Dew.Point <- as.numeric(iconv(df$Dew.Point, 'utf-8', 'ascii', sub=''))
+summary(df$Dew.Point)
+```
+
+```{r}
+df[df == ''] <- NA
+sum(is.na(df))
+df <- na.omit(df)
+dim(df)
+```
+
+```{r}
+set.seed(1)
+
+sample <- sample(c(TRUE, FALSE), nrow(df), replace=TRUE, prob=c(0.9,0.1))
+train  <- df[sample, ]
+test   <- df[!sample, ]
+
+head(train)
+head(test)
+```
+
+
+```{r}
+fullModelData <- select_if(train, is.numeric)
+head(fullModelData)
+```
+
+
+```{r}
+fullModel <- lm(TAXI_OUT ~ ., data=fullModelData)
+summary(fullModel)
+```
+
+```{r}
+plot(fullModel)
+```
+
+
+One way of encoding the categorical variables
+```{r}
+ASmean <- mean(train$TAXI_OUT[train$OP_UNIQUE_CARRIER == 'AS'])
+othermean <- mean(train$TAXI_OUT[train$OP_UNIQUE_CARRIER != 'AS' & train$OP_UNIQUE_CARRIER != 'AA' & train$OP_UNIQUE_CARRIER != 'B6'])
+AAmean <- mean(train$TAXI_OUT[train$OP_UNIQUE_CARRIER == 'AA'])
+B6mean <- mean(train$TAXI_OUT[train$OP_UNIQUE_CARRIER == 'B6'])
+
+train$OP_UNIQUE_CARRIER[train$OP_UNIQUE_CARRIER != 'AS' & train$OP_UNIQUE_CARRIER != 'AA' & train$OP_UNIQUE_CARRIER != 'B6'] <- othermean
+test$OP_UNIQUE_CARRIER[test$OP_UNIQUE_CARRIER != 'AS' & test$OP_UNIQUE_CARRIER != 'AA' & test$OP_UNIQUE_CARRIER != 'B6'] <- othermean
+
+train$OP_UNIQUE_CARRIER[train$OP_UNIQUE_CARRIER == 'AS'] <- ASmean
+test$OP_UNIQUE_CARRIER[test$OP_UNIQUE_CARRIER == 'AS'] <- ASmean
+
+train$OP_UNIQUE_CARRIER[train$OP_UNIQUE_CARRIER == 'AA'] <- AAmean
+test$OP_UNIQUE_CARRIER[test$OP_UNIQUE_CARRIER == 'AA'] <- AAmean
+
+train$OP_UNIQUE_CARRIER[train$OP_UNIQUE_CARRIER == 'B6'] <- B6mean
+test$OP_UNIQUE_CARRIER[test$OP_UNIQUE_CARRIER == 'B6'] <- B6mean
+
+train$OP_UNIQUE_CARRIER <- as.numeric(train$OP_UNIQUE_CARRIER)
+test$OP_UNIQUE_CARRIER <- as.numeric(test$OP_UNIQUE_CARRIER)
+
+unique(train$OP_UNIQUE_CARRIER)
+```
+
+
+```{r}
+tail_nums <- unique(df$TAIL_NUM)
+
+length(tail_nums)
+
+for (tail_num in tail_nums) {
+  train$TAIL_NUM[train$TAIL_NUM == tail_num] <- mean(train$TAXI_OUT[train$TAIL_NUM == tail_num])
+  test$TAIL_NUM[test$TAIL_NUM == tail_num] <- mean(train$TAXI_OUT[train$TAIL_NUM == tail_num]) 
+}
+
+train$TAIL_NUM <- as.numeric(train$TAIL_NUM)
+test$TAIL_NUM <- as.numeric(test$TAIL_NUM)
+```
+
+```{r}
+destinations <- unique(df$DEST)
+
+length(destinations)
+
+for (dest in destinations) {
+  train$DEST[train$DEST == dest] <- mean(train$TAXI_OUT[train$DEST == dest])
+  test$DEST[test$DEST == dest] <- mean(train$TAXI_OUT[train$DEST == dest]) 
+}
+
+train$DEST <- as.numeric(train$DEST)
+test$DEST <- as.numeric(test$DEST)
+```
+
+```{r}
+winds <- unique(df$Wind)
+
+for (wind in winds) {
+  train$Wind[train$Wind == wind] <- mean(train$TAXI_OUT[train$Wind == wind])
+  test$Wind[test$Wind == wind] <- mean(train$TAXI_OUT[train$Wind == wind]) 
+}
+
+train$Wind <- as.numeric(train$Wind)
+test$Wind <- as.numeric(test$Wind)
+```
+
+```{r}
+conditions <- unique(df$Condition)
+
+for (condition in conditions) {
+  train$Condition[train$Condition == condition] <- mean(train$TAXI_OUT[train$Condition == condition])
+  test$Condition[test$Condition == condition] <- mean(train$TAXI_OUT[train$Condition == condition]) 
+}
+
+train$Condition <- as.numeric(train$Condition)
+test$Condition <- as.numeric(test$Condition)
+```
+
+
+```{r}
+head(train)
+head(test)
+```
+
+```{r}
+modelWithCategoricalVariables <- lm(TAXI_OUT ~ ., data=train)
+summary(modelWithCategoricalVariables)
+```
+
+
+```{r}
+vif(modelWithCategoricalVariables)
+```
+
+```{r}
+trainVIF <- subset(train, select = -c(CRS_ELAPSED_TIME, DEP_TIME_M))
+VIFmodel <- lm(TAXI_OUT ~ ., data=trainVIF)
+summary(VIFmodel)
+```
+
+```{r}
+stepVIFmodel <- step(VIFmodel)
+summary(stepVIFmodel)
+```
+
+BACKWARD ELIMINATING THE FEATURES WITH P-VAlUE GREATER THAN 0.05
+```{r}
+pValueTrain <- subset(trainVIF, select = -c(OP_UNIQUE_CARRIER))
+pValueModel <- lm(TAXI_OUT ~ ., data=pValueTrain)
+summary(pValueModel)
+```
+```{r}
+pValueTrain2 <- subset(pValueTrain, select = -c(CRS_ARR_M))
+pValueModel2 <- lm(TAXI_OUT ~ ., data=pValueTrain2)
+summary(pValueModel2)
+```
+
+```{r}
+pValueTrain3 <- subset(pValueTrain2, select = -c(Humidity, Wind.Gust))
+pValueModel3 <- lm(TAXI_OUT ~ ., data=pValueTrain3)
+summary(pValueModel3)
+plot(pValueModel3)
+```
+```{r}
+defaultpred <- predict(fullModel, newdata = test ,interval="confidence")
+MSE0  <- mean((test$TAXI_OUT - defaultpred)^2)
+
+finalTest <- subset(test, select=-c(OP_UNIQUE_CARRIER, CRS_ELAPSED_TIME, DEP_TIME_M, CRS_ARR_M, Humidity, Wind.Gust))
+
+c <- coef(pValueModel3)
+
+predF <- c[1] + c[2] * finalTest$MONTH + c[3] * finalTest$DAY_OF_MONTH + c[4] * finalTest$DAY_OF_WEEK + c[5] * finalTest$TAIL_NUM + c[6] * finalTest$DEST + c[7]*finalTest$DEP_DELAY + c[8]*finalTest$DISTANCE + c[9]*finalTest$CRS_DEP_M + c[10]*finalTest$Temperature + c[11]*finalTest$Dew.Point + c[12]*finalTest$Wind + c[13]*finalTest$Wind.Speed + c[14] * finalTest$Pressure + c[15] * finalTest$Condition + c[16] * finalTest$sch_dep + c[17]*finalTest$sch_arr
+
+MSEF  <- mean((test$TAXI_OUT - predF)^2)
+
+print(MSE0)
+print(MSEF)
+```
+
+
+```{r}
+xrtrain <- as.matrix(subset(pValueTrain3, select = -c(TAXI_OUT)))
+yrtrain <- as.matrix(pValueTrain3$TAXI_OUT)
+p_LassoModel <- glmnet(xrtrain, yrtrain)
+plot(p_LassoModel,label = TRUE)
+coef.glmnet(p_LassoModel, s= 0.1)
+cvmodelL <- cv.glmnet(xrtrain, yrtrain, type.measure = "mse", nfolds = 20)
+plot(cvmodelL)
+```
+
+
+
+```{r}
+xrtest <- as.matrix(subset(test, select = -c(TAXI_OUT, OP_UNIQUE_CARRIER, CRS_ELAPSED_TIME, DEP_TIME_M, CRS_ARR_M, Humidity, Wind.Gust)))
+yrtest <- as.matrix(test$TAXI_OUT)
+
+defaultpred <- predict(fullModel, newdata = test ,interval="confidence")
+MSE0  <- mean((test$TAXI_OUT - defaultpred)^2)
+predL <- predict(p_LassoModel, newx = xrtest, s=cvmodelL$lambda.min)
+MSEL  <- mean((test$TAXI_OUT - predL)^2)
+
+print(MSE0)
+print(MSEL)
+```
+
+Dropping features based off of the lasso regression:
+```{r}
+lassoDropDF <- subset(pValueTrain3, select=-c(DISTANCE, Wind.Speed))
+lassoDropModel <- lm(TAXI_OUT ~ ., data=lassoDropDF)
+summary(lassoDropModel)
+```
+
+```{r}
+lassoDropModel2 <- lm(TAXI_OUT ~ 0+., data=lassoDropDF)
+summary(lassoDropModel2)
+```
+
+
+```{r}
+xrtrain <- as.matrix(subset(lassoDropDF, select = -c(TAXI_OUT)))
+yrtrain <- as.matrix(lassoDropDF$TAXI_OUT)
+p_LassoModel <- glmnet(xrtrain, yrtrain)
+plot(p_LassoModel,label = TRUE)
+coef.glmnet(p_LassoModel, s= 0.1)
+cvmodelL <- cv.glmnet(xrtrain, yrtrain, type.measure = "mse", nfolds = 20)
+plot(cvmodelL)
+```
+```{r}
+xrtest <- as.matrix(subset(test, select = -c(TAXI_OUT, OP_UNIQUE_CARRIER, CRS_ELAPSED_TIME, DEP_TIME_M, CRS_ARR_M, Humidity, Wind.Gust, DISTANCE, Wind.Speed)))
+yrtest <- as.matrix(test$TAXI_OUT)
+
+defaultpred <- predict(fullModel, newdata = test ,interval="confidence")
+MSE0  <- mean((test$TAXI_OUT - defaultpred)^2)
+predL <- predict(p_LassoModel, newx = xrtest, s=cvmodelL$lambda.min)
+MSEL  <- mean((test$TAXI_OUT - predL)^2)
+
+print(MSE0)
+print(MSEL)
+```
+
+
+________________________________________________________________________________
+
+```{r}
+conditions <- unique(df$Condition)
+
+for (condition in conditions) {
+  train$Condition[train$Condition == condition] <- mean(train$TAXI_OUT[train$Condition == condition])
+  test$Condition[test$Condition == condition] <- mean(train$TAXI_OUT[train$Condition == condition]) 
+}
+
+train$Condition <- as.numeric(train$Condition)
+test$Condition <- as.numeric(test$Condition)
+```
+
+
+Creating dummy variables for flight carriers AS, B6, and AA
+```{r}
+train$is_AS <- ifelse(train$OP_UNIQUE_CARRIER == 'AS', 1, 0)
+test$is_AS <- ifelse(test$OP_UNIQUE_CARRIER == 'AS', 1, 0)
+
+train$is_B6 <- ifelse(train$OP_UNIQUE_CARRIER == 'B6', 1, 0)
+test$is_B6 <- ifelse(test$OP_UNIQUE_CARRIER == 'B6', 1, 0)
+
+train$is_AA <- ifelse(train$OP_UNIQUE_CARRIER == 'AA', 1, 0)
+test$is_AA <- ifelse(test$OP_UNIQUE_CARRIER == 'AA', 1, 0)
+
+head(test)
+```
+```{r}
+unique(train$Condition)
+```
+
+Creating dummy variables for Conditions
+```{r}
+train$is_heavyrain.windy <- ifelse(train$Condition == 'Heavy Rain / Windy', 1, 0)
+test$is_heavyrain.windy <- ifelse(test$Condition == 'Heavy Rain / Windy', 1, 0)
+
+train$is_fog.windy <- ifelse(train$Condition == 'Fog / Windy', 1, 0)
+test$is_fog.windy <- ifelse(test$Condition == 'Fog / Windy', 1, 0)
+
+train$is_drizzle.fog <- ifelse(train$Condition == 'Drizzle and Fog', 1, 0)
+test$is_drizzle.fog <- ifelse(test$Condition == 'Drizzle and Fog', 1, 0)
+
+train$is_light.snow <- ifelse(train$Condition == 'Light Snow', 1, 0)
+test$is_light.snow <- ifelse(test$Condition == 'Light Snow', 1, 0)
+
+train$is_lightdrizzle.windy <- ifelse(train$Condition == 'Light Drizzle / Windy', 1, 0)
+test$is_lightdrizzle.windy <- ifelse(test$Condition == 'Light Drizzle / Windy', 1, 0)
+
+train$is_lightfreezingrain <- ifelse(train$Condition == 'Light Freezing Rain', 1, 0)
+test$is_lightfreezingrain <- ifelse(test$Condition == 'Light Freezing Rain', 1, 0)
+
+train$is_snow <- ifelse(train$Condition == 'Snow', 1, 0)
+test$is_snow <- ifelse(test$Condition == 'Snow', 1, 0)
+
+train$is_wintrymix.windy <- ifelse(train$Condition == 'Wintry Mix / Windy', 1, 0)
+test$is_wintrymix.windy <- ifelse(test$Condition == 'Wintry Mix / Windy', 1, 0)
+```
+
+
+```{r}
+train_with_dummies <- subset(train, select = -c(OP_UNIQUE_CARRIER, Condition, TAIL_NUM, Wind, DEST))
+head(train_with_dummies)
+
+colnames(train_with_dummies)
+```
+
+```{r}
+model_with_dummies <- lm(TAXI_OUT ~ ., data=train_with_dummies)
+summary(model_with_dummies)
+```
+
+
+```{r}
+stepModel <- step(model_with_dummies)
+summary(stepModel)
+```
+
+```{r}
+vif(stepModel)
+```
+
+ [1] "MONTH"                 "DAY_OF_MONTH"          "DAY_OF_WEEK"          
+ [4] "DEP_DELAY"             "CRS_ELAPSED_TIME"      "DISTANCE"             
+ [7] "CRS_DEP_M"             "DEP_TIME_M"            "CRS_ARR_M"            
+[10] "Temperature"           "Dew.Point"             "Humidity"             
+[13] "Wind.Speed"            "Wind.Gust"             "Pressure"             
+[16] "sch_dep"               "sch_arr"               "TAXI_OUT"             
+[19] "is_AS"                 "is_B6"                 "is_AA"                
+[22] "is_heavyrain.windy"    "is_fog.windy"          "is_drizzle.fog"       
+[25] "is_light.snow"         "is_lightdrizzle.windy" "is_lightfreezingrain" 
+[28] "is_snow"               "is_wintrymix.windy" 
+
+TAXI_OUT ~ MONTH + DAY_OF_MONTH + DAY_OF_WEEK + 
+    DEP_DELAY + DISTANCE + DEP_TIME_M + Temperature + Dew.Point + 
+    Humidity + Wind.Gust + Pressure + sch_dep + sch_arr + is_AS + 
+    is_B6 + is_AA + is_heavyrain.windy + is_fog.windy + is_drizzle.fog + 
+    is_light.snow + is_lightdrizzle.windy + is_lightfreezingrain + 
+    is_snow + is_wintrymix.windy
+
+```{r}
+xrtrain <- subset(train_with_dummies, select = -c(TAXI_OUT, CRS_DEP_M, CRS_ELAPSED_TIME, CRS_ARR_M, Wind.Speed))
+yrtrain <- train_with_dummies$TAXI_OUT
+lassoModel <- glmnet(xrtrain, yrtrain)
+plot(lassoModel,label = TRUE)
+print(lassoModel)
+coef.glmnet(lassoModel, s= 0.1)
+```
+
+Eliminating features based on Lasso coefficients, if coefficient is equal to . or less than 0.01, we eliminate the feature.
+```{r}
+newFeatures <- subset(xrtrain, select = -c(is_heavyrain.windy, DISTANCE, DEP_TIME_M, DAY_OF_MONTH , DEP_DELAY, Humidity))
+newFeatures$TAXI_OUT <- yrtrain
+head(newFeatures)
+```
+```{r}
+modelAfterLasso <- lm(TAXI_OUT ~ ., data=newFeatures)
+summary(modelAfterLasso)
+```
+
+```{r}
+stepModel2 <- step(modelAfterLasso)
+summary(stepModel2)
+```
+
+```{r}
+hist(newFeatures$Temperature)
+hist(newFeatures$Dew.Point)
+hist(newFeatures$Wind.Gust)
+hist(newFeatures$Pressure)
+hist(newFeatures$sch_dep)
+hist(newFeatures$sch_arr)
+```
+
+```{r}
+histFeatures <- subset(newFeatures, select = -c(Wind.Gust))
+histModel <- lm(TAXI_OUT ~ ., data=histFeatures)
+summary(histModel)
+plot(histModel)
+```
+
+
+```{r}
+cor(newFeatures$Wind.Gust, newFeatures$Pressure)
+```
+
